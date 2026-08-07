@@ -194,6 +194,15 @@ zephyr_udc0: &usb1 {
 
 &rtc {
 	status = "okay";
+	/* Counts the FRO16K internal RC (clock-src 0, SoC default).
+	 * The board has a 32.768 kHz crystal (Y2) on XTAL32K, but leaving
+	 * the VBAT crystal oscillator enabled wedges the MCXN947 boot ROM
+	 * on every warm reset (verified on bench 2026-07-24: power-on
+	 * boots fine, any SYSRESETREQ after the OSC is enabled hangs in
+	 * ROM in an ISP-like loop until true power removal). Do not
+	 * enable the 32k OSC until that ROM behavior is understood
+	 * (errata review pending).
+	 */
 };
 
 #include "i3c_workaround.dtsi"
