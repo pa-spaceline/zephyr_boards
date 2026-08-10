@@ -234,7 +234,7 @@
 
 &enet_mac {
 	phy-connection-type = "rmii";
-	zephyr,random-mac-address;
+	nxp,unique-mac;
 	phy-handle = <&phy>;
 };
 
