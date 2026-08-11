@@ -114,13 +114,23 @@ void board_early_init_hook(void)
 	flexspi_clock_safe_config();
 #endif
 
-	/* Set up PLL0 */
+	/* Enable the 24 MHz external crystal (Y1, +/-10 ppm) before PLL0 setup
+	 * so it can serve as the PLL0 reference.
+	 */
+	CLOCK_SetupExtClocking(BOARD_XTAL0_CLK_HZ);
+
+	/* Set up PLL0 sourced from the external crystal (SOURCE(0) = SOSC).
+	 * Sourcing from the internal FRO makes the PHC and all timekeeping
+	 * drift with the RC oscillator (~+/-1%) and puts CAN bit timing out
+	 * of ISO 11898-1 oscillator tolerance.
+	 * 24 MHz / NDIV 8 = 3 MHz PFD, x MDIV 100 = 300 MHz VCO, / 2 = 150 MHz.
+	 */
 	const pll_setup_t pll0Setup = {
-		.pllctrl = SCG_APLLCTRL_SOURCE(1U) | SCG_APLLCTRL_SELI(27U) |
+		.pllctrl = SCG_APLLCTRL_SOURCE(0U) | SCG_APLLCTRL_SELI(27U) |
 			   SCG_APLLCTRL_SELP(13U),
 		.pllndiv = SCG_APLLNDIV_NDIV(8U),
 		.pllpdiv = SCG_APLLPDIV_PDIV(1U),
-		.pllmdiv = SCG_APLLMDIV_MDIV(50U),
+		.pllmdiv = SCG_APLLMDIV_MDIV(100U),
 		.pllRate = 150000000U
 	};
 	/* Configure PLL0 to the desired values */
@@ -133,8 +143,6 @@ void board_early_init_hook(void)
 
 	/* Set AHBCLKDIV divider to value 1 */
 	CLOCK_SetClkDiv(kCLOCK_DivAhbClk, 1U);
-
-	CLOCK_SetupExtClocking(BOARD_XTAL0_CLK_HZ);
 
 #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(sai0)) || DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(sai1))
 	/* < Set up PLL1 */
@@ -149,6 +157,30 @@ void board_early_init_hook(void)
 	/* Configure PLL1 to the desired values */
 	CLOCK_SetPLL1Freq(&pll1_Setup);
 	/* Set PLL1 CLK0 divider to value 1 */
+	CLOCK_SetClkDiv(kCLOCK_DivPLL1Clk0, 1U);
+
+#if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(flexcan0)) || \
+	DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(flexcan1))
+#warning "SAI claims PLL1 (24.576 MHz): FlexCAN cannot get its 48 MHz bit clock"
+#endif
+
+#elif DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(flexcan0)) || \
+	DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(flexcan1))
+	/* PLL1 from the 24 MHz crystal at 96 MHz for the FlexCAN bit clock:
+	 * 24 MHz / NDIV 1 = 24 MHz PFD, x MDIV 16 = 384 MHz VCO,
+	 * / (2 * PDIV 2) = 96 MHz. FlexCAN divides by 2 for 48 MHz, which
+	 * expresses the 1M/4M CAN FD timings exactly (48/12 tq) - PLL0's
+	 * 150 MHz cannot (150/3 = 50 MHz -> 12.5 tq at 4 Mbit).
+	 */
+	const pll_setup_t pll1_Setup = {
+		.pllctrl = SCG_SPLLCTRL_SOURCE(0U) | SCG_SPLLCTRL_SELI(11U) |
+				 SCG_SPLLCTRL_SELP(5U),
+		.pllndiv = SCG_SPLLNDIV_NDIV(1U),
+		.pllpdiv = SCG_SPLLPDIV_PDIV(2U),
+		.pllmdiv = SCG_SPLLMDIV_MDIV(16U),
+		.pllRate = 96000000U};
+
+	CLOCK_SetPLL1Freq(&pll1_Setup);
 	CLOCK_SetClkDiv(kCLOCK_DivPLL1Clk0, 1U);
 #endif
 
@@ -242,6 +274,11 @@ void board_early_init_hook(void)
 
 #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(enet))
 	CLOCK_AttachClk(kNONE_to_ENETRMII);
+#if defined(CONFIG_PTP_CLOCK_NXP_ENET_QOS)
+	/* Attach PLL0 (150 MHz) to the ENET QoS PTP reference clock. */
+	CLOCK_AttachClk(kPLL0_to_ENETPTPREF);
+	CLOCK_SetClkDiv(kCLOCK_DivEnetptprefClk, 1u);
+#endif
 	CLOCK_EnableClock(kCLOCK_Enet);
 	SYSCON0->PRESETCTRL2 = SYSCON_PRESETCTRL2_ENET_RST_MASK;
 	SYSCON0->PRESETCTRL2 &= ~SYSCON_PRESETCTRL2_ENET_RST_MASK;
@@ -278,9 +315,19 @@ void board_early_init_hook(void)
 	CLOCK_AttachClk(kPLL0_to_CTIMER4);
 #endif
 
+/* FlexCAN from PLL1/2 = 48 MHz: crystal-derived (see PLL1 setup) so CAN
+ * bit timing meets ISO 11898-1 oscillator tolerance (FRO_HF +/-1% RC
+ * does not), while keeping the 48 MHz base the 1M/4M CAN FD timings
+ * divide exactly (PLL0/3 = 50 MHz cannot: 12.5 tq at 4 Mbit).
+ */
 #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(flexcan0))
-	CLOCK_SetClkDiv(kCLOCK_DivFlexcan0Clk, 1U);
-	CLOCK_AttachClk(kFRO_HF_to_FLEXCAN0);
+	CLOCK_SetClkDiv(kCLOCK_DivFlexcan0Clk, 2U);
+	CLOCK_AttachClk(kPLL1_CLK0_to_FLEXCAN0);
+#endif
+
+#if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(flexcan1))
+	CLOCK_SetClkDiv(kCLOCK_DivFlexcan1Clk, 2U);
+	CLOCK_AttachClk(kPLL1_CLK0_to_FLEXCAN1);
 #endif
 
 #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(usdhc0))
@@ -392,6 +439,16 @@ void board_early_init_hook(void)
 #endif /* DT_PROP(DT_NODELABEL(lptmr0), clk_source) */
 
 #endif /* DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(lptmr0)) */
+
+/* NOTE: the 32.768 kHz crystal ROSC (Y2, VBAT domain) is deliberately
+ * NOT enabled. Leaving the VBAT crystal oscillator running wedges the
+ * MCXN947 boot ROM on every warm reset (bench-verified 2026-07-24:
+ * power-on boots are fine, any SYSRESETREQ afterward hangs in ROM
+ * until full power removal - the OSC enable persists in the VBAT
+ * domain across resets). The RTC counts FRO16K instead until the ROM
+ * behavior is understood. If re-attempting, gate on
+ * DT rtc clock-src == 1 and guard with VBAT0->STATUSA OSC_RDY.
+ */
 
 #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(flexio0))
 	CLOCK_SetClkDiv(kCLOCK_DivFlexioClk, 1u);
