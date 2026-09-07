@@ -304,6 +304,11 @@ zephyr_udc0: &usb1 {
 	pinctrl-0 = <&pinmux_lpuart8_rc_singlewire>;
 	pinctrl-names = "default";
 	single-wire;
+	/* current-speed is required by the driver even though no protocol
+	 * decoder is attached to this UART yet - placeholder value, change
+	 * it to match whatever RC protocol/baud you end up wiring here.
+	 */
+	current-speed = <115200>;
 };
 
 /* Buzzer PWM, Teensy pin 29 (GPIO_EMC_31, FlexPWM3 submodule1 channel A) */
