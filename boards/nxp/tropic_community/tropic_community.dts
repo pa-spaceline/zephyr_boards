@@ -119,11 +119,22 @@
 	chosen {
 		zephyr,flash-controller = &w25q64jvxgim;
 		zephyr,flash = &w25q64jvxgim;
-		zephyr,sram = &ocram;
+		/* teensy41's own default (&ocram, the 256K FlexRAM-carved
+		 * region) is too small for rdd2's full stack (casadi-generated
+		 * math, cmsis-dsp, networking, log_sdcard); &ocram2 is a
+		 * separate, dedicated 512K OCRAM block this chip also has.
+		 */
+		zephyr,sram = &ocram2;
 		zephyr,itcm = &itcm;
 		zephyr,dtcm = &dtcm;
-		zephyr,console = &lpuart5;
-		zephyr,shell-uart = &lpuart5;
+		/* Console/shell over USB CDC-ACM instead of lpuart5 (the DEBUG
+		 * connector) - lets you get a shell over the same USB cable
+		 * used to flash, without needing a USB-serial adapter on the
+		 * DEBUG connector. Switch back to &lpuart5 once you have one,
+		 * if you'd rather use the physical DEBUG port.
+		 */
+		zephyr,console = &cdc_acm_uart0;
+		zephyr,shell-uart = &cdc_acm_uart0;
 		zephyr,canbus = &flexcan3;
 	};
 
@@ -210,8 +221,26 @@
 	};
 };
 
+/* The USB1 EHCI controller alone can't drive the bus - it needs its PHY
+ * (disabled by default in the SoC dtsi) enabled and linked via phy-handle,
+ * or the host sees the device attach but every control transfer (even the
+ * initial descriptor read) times out. Calibration values match NXP's own
+ * mimxrt1060_evk board (same usbphy IP block, same RT1060 family).
+ */
+&usbphy1 {
+	status = "okay";
+	tx-d-cal = <12>;
+	tx-cal-45-dp-ohms = <6>;
+	tx-cal-45-dm-ohms = <6>;
+};
+
 zephyr_udc0: &usb1 {
 	status = "okay";
+	phy-handle = <&usbphy1>;
+
+	cdc_acm_uart0: cdc_acm_uart0 {
+		compatible = "zephyr,cdc-acm-uart";
+	};
 };
 
 &usdhc1 {
