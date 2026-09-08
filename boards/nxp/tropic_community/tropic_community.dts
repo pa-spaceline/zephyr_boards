@@ -138,18 +138,20 @@
 		zephyr,canbus = &flexcan3;
 	};
 
-	leds {
-		compatible = "gpio-leds";
-
-		board_led: led-1 {
-			gpios = <&gpio2 3 GPIO_ACTIVE_HIGH>;
-			label = "User LED Pin 13";
-		};
-	};
-
-	aliases {
-		led0 = &board_led;
-	};
+	/* DELETED: "board_led" / led0 (Teensy pin 13, GPIO_B0_03) was
+	 * inherited from the upstream teensy41 board's own default LED
+	 * definition, where pin 13 is genuinely free. On THIS carrier
+	 * board it isn't: the schematic's own SPI1_SCK net (feeding imu0,
+	 * see &lpspi4 below) is wired to that exact same physical pad.
+	 * Zephyr's gpio-leds driver configuring this pin as a plain GPIO
+	 * output at boot silently stole the pad away from its LPSPI4_SCK
+	 * alternate function, corrupting the SPI clock for imu0 - this was
+	 * the actual root cause of an extremely long-running mystery where
+	 * imu0 (and only imu0, never imu1 on a different, non-conflicting
+	 * bus) would reliably work for its first ~2 register accesses and
+	 * then silently stop responding for the rest of boot, on every
+	 * single unit tested. Do not reintroduce an LED on this pin.
+	 */
 
 	/* ARM safety switch, Teensy pin 32 (GPIO_B0_12 = GPIO2 IO12) */
 	gpio_keys {
