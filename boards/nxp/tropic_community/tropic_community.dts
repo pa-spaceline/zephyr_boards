@@ -191,9 +191,6 @@
 		spi-max-frequency = <DT_FREQ_M(133)>;
 		status = "okay";
 		jedec-id = [ef 70 17];
-
-		erase-block-size = <4096>;
-		write-block-size = <1>;
 	};
 };
 
