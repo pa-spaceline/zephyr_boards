@@ -86,14 +86,11 @@
  * disabled there too), so this matches it rather than falling short.
  *
  * RC_INPUT (Teensy pin 20, lpuart8 single-wire, RX pin doubles as ADC_A so
- * only TX is pinctrl'd) is enabled below but has no protocol decoder
- * attached: the physical UART/pin comes from the schematic, but the
- * receiver protocol (SBUS/CRSF/etc) is a property of whatever external
- * receiver module gets plugged in, not something on this board's own
- * schematic - so it isn't wired to a "rc" alias or any protocol-specific
- * child node here. If/when RC is needed, add a child node under &lpuart8
- * matching the actual receiver (see mr_vmu_tropic's lpuart8/sbus0 in this
- * same repo for the "tbs,crsf" shape).
+ * only TX is pinctrl'd) has a "tbs,crsf" child node below, matching
+ * mr_vmu_tropic's own lpuart8/sbus0 node - the receiver protocol is a
+ * property of whatever module actually gets plugged in here, not something
+ * this board's own schematic can tell us, so change compatible/current-speed
+ * to "futaba,sbus"/100000 (inverted) instead if the real receiver is SBUS.
  *
  * Not wired, deferred:
  *   - ADC_A/ADC_V (Teensy pins 21/22, AD_B1_11/AD_B1_08, ADC1_IN0/IN13):
@@ -127,11 +124,12 @@
 		zephyr,sram = &ocram2;
 		zephyr,itcm = &itcm;
 		zephyr,dtcm = &dtcm;
-		/* Console/shell over USB CDC-ACM instead of lpuart5 (the DEBUG
-		 * connector) - lets you get a shell over the same USB cable
-		 * used to flash, without needing a USB-serial adapter on the
-		 * DEBUG connector. Switch back to &lpuart5 once you have one,
-		 * if you'd rather use the physical DEBUG port.
+		/* Reverted back to USB CDC-ACM console for this test: the
+		 * lpuart5 switch was a separate, uncontrolled variable that
+		 * would confound a clean before/after test of the q0*dq vs
+		 * dq*q0 quaternion-formula hang. Restoring the exact original
+		 * condition (console on USB) with only the formula and the
+		 * EHCI bounded-retry mitigation varying.
 		 */
 		zephyr,console = &cdc_acm_uart0;
 		zephyr,shell-uart = &cdc_acm_uart0;
@@ -220,6 +218,7 @@
 		reset-gpios = <&gpio2 14 GPIO_ACTIVE_LOW>;
 		int-gpios = <&gpio2 15 GPIO_ACTIVE_LOW>;
 		ti,interface-type = "rmii";
+		default-speeds = "100BASE Full-Duplex";
 	};
 };
 
@@ -265,6 +264,13 @@ zephyr_udc0: &usb1 {
 	status = "okay";
 };
 
+/* Isolated re-test: ONLY the watchdog, on its own, to check whether it alone
+ * (not the console switch, not the HAL fix - both already ruled out
+ * individually) is what stopped the SD logging hang in the earlier build.
+ */
+&wdog0 {
+	status = "okay";
+};
 &systick {
 	status = "okay";
 };
@@ -304,11 +310,21 @@ zephyr_udc0: &usb1 {
 	};
 };
 
-/* External EXT_SDA/EXT_SCL connector, Teensy pins 18/19 */
+/* External EXT_SDA/EXT_SCL connector, Teensy pins 18/19 - also the GPS
+ * connector's EXT_SCL/EXT_SDA pins (see the GPS connector schematic:
+ * BM10B-GHS-TBT pins 4/5), so the compass built into a Pixhawk-format
+ * GPS+compass module (e.g. Holybro M10's IST8310/IST8308) is reachable
+ * here, same bus mr_vmu_tropic.dts uses for its own external ist8310.
+ */
 &lpi2c1 {
 	status = "okay";
 	pinctrl-0 = <&pinmux_lpi2c1>;
 	pinctrl-names = "default";
+
+	ist8310: ist8310@e {
+		compatible = "isentek,ist8310";
+		reg = <0xe>;
+	};
 };
 
 /* GPS connector, Teensy pins 15/14 */
@@ -329,17 +345,102 @@ zephyr_udc0: &usb1 {
 	hw-flow-control;
 };
 
-/* RC receiver input, Teensy pin 20, single-wire (RX pin doubles as ADC_A) */
+/* RC receiver input, Teensy pin 20, single-wire (RX pin doubles as ADC_A).
+ * CRSF, matching mr_vmu_tropic.dts's own lpuart8 node - change compatible/
+ * current-speed to "futaba,sbus"/100000 (and mark the UART inverted) if the
+ * receiver actually plugged in here is SBUS, not CRSF.
+ */
 &lpuart8 {
 	status = "okay";
 	pinctrl-0 = <&pinmux_lpuart8_rc_singlewire>;
 	pinctrl-names = "default";
 	single-wire;
-	/* current-speed is required by the driver even though no protocol
-	 * decoder is attached to this UART yet - placeholder value, change
-	 * it to match whatever RC protocol/baud you end up wiring here.
-	 */
-	current-speed = <115200>;
+	current-speed = <420000>;
+
+	rc0: rc {
+		compatible = "tbs,crsf";
+
+		chan_1 {
+			channel = <1>;
+			type = <INPUT_EV_ABS>;
+			zephyr,code = <1>;
+		};
+		chan_2 {
+			channel = <2>;
+			type = <INPUT_EV_ABS>;
+			zephyr,code = <2>;
+		};
+		chan_3 {
+			channel = <3>;
+			type = <INPUT_EV_ABS>;
+			zephyr,code = <3>;
+		};
+		chan_4 {
+			channel = <4>;
+			type = <INPUT_EV_ABS>;
+			zephyr,code = <4>;
+		};
+		chan_5 {
+			channel = <5>;
+			type = <INPUT_EV_ABS>;
+			zephyr,code = <5>;
+		};
+		chan_6 {
+			channel = <6>;
+			type = <INPUT_EV_ABS>;
+			zephyr,code = <6>;
+		};
+		chan_7 {
+			channel = <7>;
+			type = <INPUT_EV_ABS>;
+			zephyr,code = <7>;
+		};
+		chan_8 {
+			channel = <8>;
+			type = <INPUT_EV_ABS>;
+			zephyr,code = <8>;
+		};
+		chan_9 {
+			channel = <9>;
+			type = <INPUT_EV_ABS>;
+			zephyr,code = <9>;
+		};
+		chan_10 {
+			channel = <10>;
+			type = <INPUT_EV_ABS>;
+			zephyr,code = <10>;
+		};
+		chan_11 {
+			channel = <11>;
+			type = <INPUT_EV_ABS>;
+			zephyr,code = <11>;
+		};
+		chan_12 {
+			channel = <12>;
+			type = <INPUT_EV_ABS>;
+			zephyr,code = <12>;
+		};
+		chan_13 {
+			channel = <13>;
+			type = <INPUT_EV_ABS>;
+			zephyr,code = <13>;
+		};
+		chan_14 {
+			channel = <14>;
+			type = <INPUT_EV_ABS>;
+			zephyr,code = <14>;
+		};
+		chan_15 {
+			channel = <15>;
+			type = <INPUT_EV_ABS>;
+			zephyr,code = <15>;
+		};
+		chan_16 {
+			channel = <16>;
+			type = <INPUT_EV_ABS>;
+			zephyr,code = <16>;
+		};
+	};
 };
 
 /* Buzzer PWM, Teensy pin 29 (GPIO_EMC_31, FlexPWM3 submodule1 channel A) */
